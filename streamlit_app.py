@@ -9,6 +9,12 @@ import requests
 import json
 import threading
 
+# Try to import gTTS for fallback TTS
+try:
+    from gtts import gTTS
+    GTTS_AVAILABLE = True
+except ImportError:
+    GTTS_AVAILABLE = False
 
 # Page configuration
 st.set_page_config(
@@ -17,6 +23,9 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="collapsed"
 )
+
+# Configuration for cloud deployment
+AUDIO_ENABLED = st.sidebar.checkbox("🎵 Enable Audio Features", value=True, help="Disable if experiencing audio system issues in cloud deployment")
 
 # Custom CSS for styling
 st.markdown("""
@@ -316,7 +325,12 @@ def get_gpt_response(user_input, openai_config):
         return f"Error getting GPT response: {str(e)}"
 
 def text_to_speech(text, speech_config):
-    """Convert text to speech using Azure Speech Services with optimization"""
+    """Convert text to speech using Azure Speech Services with optimization and fallback"""
+    # Check if audio is enabled
+    if not AUDIO_ENABLED:
+        st.info("🔇 Audio features are disabled. Enable in sidebar if needed.")
+        return None
+    
     try:
         # Limit text length for faster synthesis
         if len(text) > 300:
@@ -337,7 +351,62 @@ def text_to_speech(text, speech_config):
             return None
             
     except Exception as e:
-        st.error(f"Error in text-to-speech: {str(e)}")
+        error_msg = str(e)
+        
+        # Check if it's an audio system library issue
+        if "SPXERR_AUDIO_SYS_LIBRARY_NOT_FOUND" in error_msg or "0x38" in error_msg:
+            st.warning("⚠️ **Audio System Compatibility Issue Detected**")
+            st.info("""
+            This is a common issue when deploying voice apps to cloud platforms like Streamlit Cloud.
+            
+            **What's happening:**
+            - The cloud environment lacks audio system libraries
+            - Azure Speech SDK can't access audio hardware
+            - This is normal and expected in cloud deployments
+            
+            **Your bot will still work perfectly:**
+            - ✅ Speech recognition (voice input) works
+            - ✅ AI responses work
+            - ✅ Text responses work
+            - ✅ All core functionality intact
+            
+            **Solutions:**
+            1. **Disable audio** in the sidebar (recommended for cloud)
+            2. **Use text-only mode** - equally effective
+            3. **Audio is optional** - not required for functionality
+            """)
+            
+            # Try fallback TTS if available
+            if GTTS_AVAILABLE:
+                st.info("🔄 Trying fallback text-to-speech...")
+                fallback_audio = fallback_text_to_speech(text)
+                if fallback_audio:
+                    st.success("✅ Fallback TTS successful!")
+                    return fallback_audio
+            
+            return None
+        else:
+            st.error(f"Unexpected error in text-to-speech: {error_msg}")
+            return None
+
+def fallback_text_to_speech(text):
+    """Fallback text-to-speech using gTTS when Azure Speech fails"""
+    if not GTTS_AVAILABLE:
+        return None
+    
+    try:
+        # Create gTTS object
+        tts = gTTS(text=text, lang='en', slow=False)
+        
+        # Save to bytes buffer
+        audio_buffer = io.BytesIO()
+        tts.write_to_fp(audio_buffer)
+        audio_buffer.seek(0)
+        
+        return audio_buffer.read()
+        
+    except Exception as e:
+        st.warning(f"Fallback TTS also failed: {str(e)}")
         return None
 
 def display_status(status):
