@@ -9,6 +9,7 @@ import requests
 import json
 import threading
 
+
 # Page configuration
 st.set_page_config(
     page_title="🤖 Azure Speech GPT Voice Bot",
